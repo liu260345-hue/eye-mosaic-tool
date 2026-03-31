@@ -171,6 +171,12 @@ else:
 def _find_executable(paths: list) -> str:
     for p in paths:
         if p and os.path.isfile(p):
+            # macOS/Linux: 确保文件有可执行权限（zip解压后可能丢失）
+            if sys.platform != "win32":
+                try:
+                    os.chmod(p, 0o755)
+                except OSError:
+                    pass
             return p
     raise FileNotFoundError("找不到 FFmpeg，请确保已安装 FFmpeg 并配置 PATH。")
 

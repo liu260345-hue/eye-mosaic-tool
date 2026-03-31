@@ -59,13 +59,20 @@ def _process_task(task_id, input_path, output_path, strength, padding):
     tasks[task_id]["status"] = "processing"
     tasks[task_id]["progress"] = 0
 
-    success = process_video(
-        input_path=input_path,
-        output_path=output_path,
-        mosaic_strength=strength,
-        eye_padding=padding,
-        progress_callback=progress_cb,
-    )
+    try:
+        success = process_video(
+            input_path=input_path,
+            output_path=output_path,
+            mosaic_strength=strength,
+            eye_padding=padding,
+            progress_callback=progress_cb,
+        )
+    except Exception as e:
+        print(f"[错误] 处理异常: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        success = False
+        tasks[task_id]["message"] = f"处理出错: {e}"
 
     if success:
         tasks[task_id]["status"] = "done"
@@ -75,6 +82,7 @@ def _process_task(task_id, input_path, output_path, strength, padding):
         tasks[task_id]["status"] = "error"
         if not tasks[task_id].get("message"):
             tasks[task_id]["message"] = "处理失败"
+        print(f"[错误] 任务 {task_id} 失败: {tasks[task_id]['message']}", flush=True)
 
     try:
         os.remove(input_path)
@@ -155,10 +163,36 @@ def download(task_id):
 
 
 if __name__ == "__main__":
-    port = 5000
+    import socket
+
+    # 自动选择可用端口（macOS 12+ 的 AirPlay 默认占用 5000）
+    def _find_free_port(preferred=8080):
+        for p in [preferred, 8081, 8082, 8888, 0]:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(("127.0.0.1", p))
+                    return s.getsockname()[1]
+            except OSError:
+                continue
+        return 8080
+
+    port = _find_free_port()
+
     print("=" * 50)
     print("  视频眼部马赛克工具 - Web 版")
     print("=" * 50)
+
+    # 启动诊断：检查 FFmpeg 是否可用
+    try:
+        from eye_mosaic import get_ffmpeg, get_ffprobe
+        ffmpeg_path = get_ffmpeg()
+        ffprobe_path = get_ffprobe()
+        print(f"  FFmpeg:  {ffmpeg_path}")
+        print(f"  FFprobe: {ffprobe_path}")
+    except Exception as e:
+        print(f"  [警告] FFmpeg 未找到: {e}")
+        print(f"  处理视频时将尝试自动下载...")
+
     print(f"\n浏览器将自动打开: http://localhost:{port}")
     print("关闭此窗口即可停止服务\n")
     threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{port}")).start()
