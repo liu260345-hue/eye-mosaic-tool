@@ -17,7 +17,7 @@ jobs:
           - os: windows-latest
             name: Windows
             artifact: 视频眼部马赛克工具Web版-Windows
-          - os: macos-13
+          - os: macos-14
             name: macOS
             artifact: 视频眼部马赛克工具Web版-macOS
 
