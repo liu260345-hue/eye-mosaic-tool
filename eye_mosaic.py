@@ -185,9 +185,15 @@ def get_video_info(video_path: str) -> dict:
     }
 
     if video_stream:
-        r_fps = video_stream.get("r_frame_rate", "30/1")
-        num, den = map(int, r_fps.split("/"))
-        result_info["fps"] = num / den if den else 30.0
+        # 优先使用 avg_frame_rate（对 VFR 视频更准确）
+        avg_fps_str = video_stream.get("avg_frame_rate", "0/0")
+        r_fps_str = video_stream.get("r_frame_rate", "30/1")
+        avg_num, avg_den = map(int, avg_fps_str.split("/"))
+        r_num, r_den = map(int, r_fps_str.split("/"))
+        avg_fps = avg_num / avg_den if avg_den else 0
+        r_fps = r_num / r_den if r_den else 30.0
+        # avg_frame_rate 合理时优先使用，否则 fallback 到 r_frame_rate
+        result_info["fps"] = avg_fps if 1 < avg_fps < 240 else r_fps
         result_info["width"] = int(video_stream.get("width", 0))
         result_info["height"] = int(video_stream.get("height", 0))
         result_info["video_codec"] = video_stream.get("codec_name", "h264")
@@ -453,6 +459,14 @@ def process_video(
                 progress_callback(-1, "无法打开视频文件")
             return False
 
+        # 用 OpenCV 帧率交叉校验 ffprobe 结果（防止 VFR 视频帧率不准）
+        cv_fps = cap.get(cv2.CAP_PROP_FPS)
+        if cv_fps and 1 < cv_fps < 240:
+            if abs(fps - cv_fps) / max(fps, cv_fps) > 0.2:
+                fps = cv_fps
+        # 重算总帧数
+        total_frames = int(fps * duration) if duration > 0 else 0
+
         # 读取第一帧获取实际分辨率（避免与 ffprobe 元数据不一致导致输出乱码）
         ret, first_frame = cap.read()
         if not ret or first_frame is None:
@@ -499,10 +513,12 @@ def process_video(
         if video_info.get("has_audio"):
             ffmpeg_cmd += ["-i", input_path, "-map", "0:v:0", "-map", "1:a:0?", "-c:a", "copy"]
 
-        # 画质保持：CRF 15 + profile high（不使用 maxrate 限制，避免与 CRF 冲突导致画质下降）
+        # 画质保持：CRF 15 + profile high
+        # -vsync cfr 确保输出恒定帧率，-r 输出帧率与输入一致，防止加速/减速
         ffmpeg_cmd += [
             "-c:v", "libx264", "-preset", "medium", "-crf", "15",
             "-profile:v", "high", "-pix_fmt", "yuv420p",
+            "-r", fps_str, "-vsync", "cfr",
             "-movflags", "+faststart",
             output_path,
         ]
