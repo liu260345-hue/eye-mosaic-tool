@@ -183,17 +183,50 @@ def _find_executable(paths: list) -> str:
 
 def get_ffmpeg():
     _auto_download_ffmpeg()
-    return _find_executable(FFMPEG_PATHS)
+    try:
+        return _find_executable(FFMPEG_PATHS)
+    except FileNotFoundError:
+        pass
+    # 兜底：尝试 imageio-ffmpeg 包内置的 ffmpeg
+    try:
+        import imageio_ffmpeg
+        p = imageio_ffmpeg.get_ffmpeg_exe()
+        if p and os.path.isfile(p):
+            if sys.platform != "win32":
+                try:
+                    os.chmod(p, 0o755)
+                except OSError:
+                    pass
+            return p
+    except (ImportError, Exception):
+        pass
+    raise FileNotFoundError("找不到 FFmpeg，请确保已安装 FFmpeg 并配置 PATH。")
 
 
 def get_ffprobe():
     _auto_download_ffmpeg()
-    return _find_executable(FFPROBE_PATHS)
+    try:
+        return _find_executable(FFPROBE_PATHS)
+    except FileNotFoundError:
+        pass
+    # ffprobe 可能不存在（imageio-ffmpeg 只包含 ffmpeg），返回 None
+    return None
 
 
 def get_video_info(video_path: str) -> dict:
-    """获取视频元数据。"""
+    """获取视频元数据。优先用 ffprobe，不可用时 fallback 到 OpenCV + ffmpeg。"""
     ffprobe = get_ffprobe()
+    if ffprobe:
+        try:
+            return _get_video_info_ffprobe(video_path, ffprobe)
+        except Exception:
+            pass
+    # fallback: 用 OpenCV + ffmpeg -i 获取信息
+    return _get_video_info_fallback(video_path)
+
+
+def _get_video_info_ffprobe(video_path: str, ffprobe: str) -> dict:
+    """用 ffprobe 获取视频元数据。"""
     cmd = [
         ffprobe, "-v", "quiet",
         "-print_format", "json",
@@ -230,7 +263,6 @@ def get_video_info(video_path: str) -> dict:
         r_num, r_den = map(int, r_fps_str.split("/"))
         avg_fps = avg_num / avg_den if avg_den else 0
         r_fps = r_num / r_den if r_den else 30.0
-        # avg_frame_rate 合理时优先使用，否则 fallback 到 r_frame_rate
         result_info["fps"] = avg_fps if 1 < avg_fps < 240 else r_fps
         result_info["width"] = int(video_stream.get("width", 0))
         result_info["height"] = int(video_stream.get("height", 0))
@@ -242,6 +274,50 @@ def get_video_info(video_path: str) -> dict:
         result_info["audio_codec"] = audio_stream.get("codec_name")
         result_info["audio_bitrate"] = audio_stream.get("bit_rate")
         result_info["audio_sample_rate"] = audio_stream.get("sample_rate")
+
+    return result_info
+
+
+def _get_video_info_fallback(video_path: str) -> dict:
+    """用 OpenCV + ffmpeg -i 获取视频信息（不依赖 ffprobe）。"""
+    import re
+    result_info = {
+        "duration": 0, "fps": 30.0, "width": 0, "height": 0,
+        "has_audio": False, "bit_rate": None,
+    }
+
+    # OpenCV 获取视频属性
+    cap = cv2.VideoCapture(video_path)
+    if cap.isOpened():
+        result_info["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        result_info["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cv_fps = cap.get(cv2.CAP_PROP_FPS)
+        if cv_fps and 1 < cv_fps < 240:
+            result_info["fps"] = cv_fps
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        if frame_count > 0 and result_info["fps"] > 0:
+            result_info["duration"] = frame_count / result_info["fps"]
+        cap.release()
+
+    # ffmpeg -i 检测是否有音频流
+    try:
+        ffmpeg = get_ffmpeg()
+        cmd = [ffmpeg, "-i", video_path]
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=15,
+            encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        stderr = r.stderr or ""
+        result_info["has_audio"] = bool(re.search(r"Stream.*Audio:", stderr))
+        # 尝试提取时长
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+)\.(\d+)", stderr)
+        if m:
+            dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3)) + int(m.group(4)) / 100
+            if dur > 0:
+                result_info["duration"] = dur
+    except Exception:
+        pass
 
     return result_info
 

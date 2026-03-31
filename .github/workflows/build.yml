@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyinstaller flask mediapipe opencv-python numpy
+          pip install pyinstaller flask mediapipe opencv-python numpy imageio-ffmpeg
 
       - name: Download models
         run: |
@@ -89,7 +89,9 @@ jobs:
             --hidden-import=flask \
             --hidden-import=cv2 \
             --hidden-import=numpy \
+            --hidden-import=imageio_ffmpeg \
             --collect-all mediapipe \
+            --collect-all imageio_ffmpeg \
             web_launcher.py
 
       - name: Create macOS launcher script
