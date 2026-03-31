@@ -17,7 +17,7 @@ jobs:
           - os: windows-latest
             name: Windows
             artifact: 视频眼部马赛克工具Web版-Windows
-          - os: macos-latest
+          - os: macos-13
             name: macOS
             artifact: 视频眼部马赛克工具Web版-macOS
 
@@ -76,7 +76,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           pyinstaller --noconfirm \
-            --name "视频眼部马赛克工具Web版" \
+            --name "EyeMosaicTool" \
             --console \
             --add-data "web/templates:web/templates" \
             --add-data "eye_mosaic.py:." \
@@ -92,9 +92,49 @@ jobs:
             --collect-all mediapipe \
             web_launcher.py
 
-      - name: Upload artifact
+      - name: Create macOS launcher script
+        if: runner.os == 'macOS'
+        run: |
+          cat > "dist/EyeMosaicTool/双击打开-视频眼部马赛克工具.command" << 'LAUNCHER'
+          #!/bin/bash
+          cd "$(dirname "$0")"
+
+          echo "========================================"
+          echo "  视频眼部马赛克工具 - 启动中..."
+          echo "========================================"
+          echo ""
+
+          # 移除macOS隔离属性(防止Gatekeeper拦截)
+          xattr -cr "$(dirname "$0")" 2>/dev/null
+
+          # 确保主程序有执行权限
+          chmod +x ./EyeMosaicTool 2>/dev/null
+
+          # 启动主程序
+          ./EyeMosaicTool
+
+          # 如果异常退出，暂停显示错误
+          if [ $? -ne 0 ]; then
+              echo ""
+              echo "程序异常退出，按回车键关闭..."
+              read
+          fi
+          LAUNCHER
+          chmod +x "dist/EyeMosaicTool/双击打开-视频眼部马赛克工具.command"
+          chmod +x "dist/EyeMosaicTool/EyeMosaicTool"
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/视频眼部马赛克工具Web版/
+          compression-level: 9
+
+      - name: Upload artifact (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/EyeMosaicTool/
           compression-level: 9
