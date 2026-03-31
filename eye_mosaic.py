@@ -84,56 +84,88 @@ _FFMPEG_DIR = os.path.join(_APP_DIR, "ffmpeg")
 
 def _auto_download_ffmpeg():
     """首次运行时自动下载 FFmpeg 到 _FFMPEG_DIR。"""
-    ffmpeg_exe = os.path.join(_FFMPEG_DIR, "ffmpeg.exe")
-    if os.path.isfile(ffmpeg_exe):
+    if sys.platform == "win32":
+        ffmpeg_name = "ffmpeg.exe"
+    else:
+        ffmpeg_name = "ffmpeg"
+
+    ffmpeg_path = os.path.join(_FFMPEG_DIR, ffmpeg_name)
+    if os.path.isfile(ffmpeg_path):
         return
-    if sys.platform != "win32":
-        return  # 非 Windows 不自动下载
+
+    # 如果系统 PATH 里已有 ffmpeg，则跳过下载
+    if shutil.which("ffmpeg"):
+        return
 
     import urllib.request
     import zipfile
     import io
 
-    url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-    print("首次运行，正在下载 FFmpeg（约 100MB），请稍候...")
+    os.makedirs(_FFMPEG_DIR, exist_ok=True)
+    print("首次运行，正在下载 FFmpeg，请稍候...")
 
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = resp.read()
+        if sys.platform == "win32":
+            url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                data = resp.read()
 
-        os.makedirs(_FFMPEG_DIR, exist_ok=True)
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                for member in zf.namelist():
+                    basename = os.path.basename(member)
+                    if basename in ("ffmpeg.exe", "ffprobe.exe"):
+                        target = os.path.join(_FFMPEG_DIR, basename)
+                        with zf.open(member) as src, open(target, "wb") as dst:
+                            dst.write(src.read())
 
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            for member in zf.namelist():
-                basename = os.path.basename(member)
-                if basename in ("ffmpeg.exe", "ffprobe.exe"):
-                    target = os.path.join(_FFMPEG_DIR, basename)
-                    with zf.open(member) as src, open(target, "wb") as dst:
-                        dst.write(src.read())
+        elif sys.platform == "darwin":
+            # macOS: 从 evermeet.cx 下载静态编译版
+            for tool in ("ffmpeg", "ffprobe"):
+                url = f"https://evermeet.cx/ffmpeg/getrelease/{tool}/zip"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=300) as resp:
+                    data = resp.read()
+                with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                    for member in zf.namelist():
+                        if os.path.basename(member) == tool:
+                            target = os.path.join(_FFMPEG_DIR, tool)
+                            with zf.open(member) as src, open(target, "wb") as dst:
+                                dst.write(src.read())
+                            os.chmod(target, 0o755)
+        else:
+            print("请手动安装 FFmpeg。")
+            return
 
-        if os.path.isfile(ffmpeg_exe):
+        if os.path.isfile(ffmpeg_path):
             print("FFmpeg 下载完成！")
         else:
             print("FFmpeg 下载失败，请手动安装 FFmpeg。")
     except Exception as e:
         print(f"FFmpeg 下载失败: {e}")
-        print("请手动安装 FFmpeg 或将 ffmpeg.exe 放入程序目录的 ffmpeg 文件夹中。")
+        print("请手动安装 FFmpeg 或将 ffmpeg 放入程序目录的 ffmpeg 文件夹中。")
 
 
-FFMPEG_PATHS = [
-    os.path.join(_FFMPEG_DIR, "ffmpeg.exe"),
-    os.path.join(_FFMPEG_DIR, "ffmpeg"),
-    shutil.which("ffmpeg"),
-    r"C:\Users\lenovo\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin\ffmpeg.exe",
-]
-
-FFPROBE_PATHS = [
-    os.path.join(_FFMPEG_DIR, "ffprobe.exe"),
-    os.path.join(_FFMPEG_DIR, "ffprobe"),
-    shutil.which("ffprobe"),
-    r"C:\Users\lenovo\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin\ffprobe.exe",
-]
+if sys.platform == "win32":
+    FFMPEG_PATHS = [
+        os.path.join(_FFMPEG_DIR, "ffmpeg.exe"),
+        os.path.join(_FFMPEG_DIR, "ffmpeg"),
+        shutil.which("ffmpeg"),
+    ]
+    FFPROBE_PATHS = [
+        os.path.join(_FFMPEG_DIR, "ffprobe.exe"),
+        os.path.join(_FFMPEG_DIR, "ffprobe"),
+        shutil.which("ffprobe"),
+    ]
+else:
+    FFMPEG_PATHS = [
+        os.path.join(_FFMPEG_DIR, "ffmpeg"),
+        shutil.which("ffmpeg"),
+    ]
+    FFPROBE_PATHS = [
+        os.path.join(_FFMPEG_DIR, "ffprobe"),
+        shutil.which("ffprobe"),
+    ]
 
 
 def _find_executable(paths: list) -> str:

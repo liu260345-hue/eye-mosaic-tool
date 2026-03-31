@@ -109,6 +109,7 @@ jobs:
 
           # 确保主程序有执行权限
           chmod +x ./EyeMosaicTool 2>/dev/null
+          chmod +x ./ffmpeg/ffmpeg ./ffmpeg/ffprobe 2>/dev/null
 
           # 启动主程序
           ./EyeMosaicTool
@@ -122,6 +123,18 @@ jobs:
           LAUNCHER
           chmod +x "dist/EyeMosaicTool/双击打开-视频眼部马赛克工具.command"
           chmod +x "dist/EyeMosaicTool/EyeMosaicTool"
+
+      - name: Bundle FFmpeg for macOS
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist/EyeMosaicTool/ffmpeg
+          echo "Downloading FFmpeg for macOS..."
+          curl -L -o /tmp/ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" && \
+            unzip -o /tmp/ffmpeg.zip -d dist/EyeMosaicTool/ffmpeg/ || echo "FFmpeg download failed, will auto-download on first run"
+          curl -L -o /tmp/ffprobe.zip "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" && \
+            unzip -o /tmp/ffprobe.zip -d dist/EyeMosaicTool/ffmpeg/ || echo "FFprobe download failed, will auto-download on first run"
+          chmod +x dist/EyeMosaicTool/ffmpeg/* 2>/dev/null || true
+          ls -la dist/EyeMosaicTool/ffmpeg/
 
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
